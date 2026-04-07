@@ -343,6 +343,39 @@ const SHIFT_KEYWORDS = ['shift','work shift','night shift','day shift','morning 
 const SLEEP_KEYWORDS = ['sleep','nap','rest','bedtime'];
 
 // ══════════════════════════════════════════════════
+// PERSISTENCE HELPERS
+// ══════════════════════════════════════════════════
+const LS_PARK    = 'dayflow_park';
+const LS_PLACED  = 'dayflow_placed';
+const LS_NOTE    = 'dayflow_note';
+const LS_GAS_URL = 'dayflow_gasurl';
+
+function saveState() {
+  try {
+    localStorage.setItem(LS_PARK, JSON.stringify(parkBlocks));
+    const placedData = placed.map(pb => ({
+      id: pb.id, blockId: pb.blockId, startMin: pb.startMin,
+      duration: pb.duration, color: pb.color, name: pb.name, placedAt: pb.placedAt
+    }));
+    localStorage.setItem(LS_PLACED, JSON.stringify(placedData));
+  } catch(e) { console.warn('Save failed:', e); }
+}
+
+function loadParkBlocks() {
+  try {
+    const raw = localStorage.getItem(LS_PARK);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) { return null; }
+}
+
+function loadPlacedData() {
+  try {
+    const raw = localStorage.getItem(LS_PLACED);
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) { return []; }
+}
+
+// ══════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════
 let parkBlocks = [];
@@ -852,8 +885,8 @@ function selectBlock(id) {
 // ══════════════════════════════════════════════════
 // PLACE BLOCK ON TIMELINE
 // ══════════════════════════════════════════════════
-function placeBlock(blockId, name, color, startMin, duration) {
-  const id = 'p'+Date.now()+Math.random();
+function placeBlock(blockId, name, color, startMin, duration, existingId, existingPlacedAt) {
+  const id = existingId || ('p'+Date.now()+Math.random());
   const el = document.createElement('div');
   el.className='t-block';
   el.style.top    = m2y(startMin)+'px';
@@ -876,7 +909,7 @@ function placeBlock(blockId, name, color, startMin, duration) {
     <div class="t-counter"></div>
     <div class="t-resize"></div>`;
 
-  const pb = {id, blockId, startMin, duration, color:{...color}, name, el, placedAt:Date.now()};
+  const pb = {id, blockId, startMin, duration, color:{...color}, name, el, placedAt: existingPlacedAt || Date.now()};
   placed.push(pb);
   document.getElementById('dz').appendChild(el);
 
@@ -976,9 +1009,9 @@ document.addEventListener('keydown',e=>{
 });
 
 // ══════════════════════════════════════════════════
-// DEFAULT BLOCKS
+// DEFAULT BLOCKS (only used if nothing saved)
 // ══════════════════════════════════════════════════
-[
+const DEFAULT_BLOCKS = [
   {name:'Deep Work',   duration:90,  color:{r:79, g:142,b:247,a:40}},
   {name:'Morning Gym', duration:60,  color:{r:52, g:211,b:153,a:40}},
   {name:'Reading',     duration:30,  color:{r:167,g:139,b:250,a:40}},
@@ -989,7 +1022,14 @@ document.addEventListener('keydown',e=>{
   {name:'Walk/Break',  duration:20,  color:{r:45, g:212,b:191,a:40}},
   {name:'Shift',       duration:480, color:{r:255,g:193,b:7,  a:38}},
   {name:'Sleep',       duration:480, color:{r:100,g:130,b:255,a:35}},
-].forEach(d => parkBlocks.push({id:'b'+Date.now()+Math.random(),...d}));
+];
+
+const savedPark = loadParkBlocks();
+if (savedPark && savedPark.length > 0) {
+  parkBlocks = savedPark;
+} else {
+  DEFAULT_BLOCKS.forEach(d => parkBlocks.push({id:'b'+Date.now()+Math.random(),...d}));
+}
 
 // ══════════════════════════════════════════════════
 // NOTEPAD
@@ -1123,6 +1163,36 @@ setInterval(updateNow, 10000);
 renderParking();
 updateSliderLabel();
 startCounterInterval();
+
+// Restore notepad
+const savedNote = localStorage.getItem(LS_NOTE);
+if (savedNote) document.getElementById('notepadText').value = savedNote;
+
+// Restore GAS URL
+const savedGas = localStorage.getItem(LS_GAS_URL);
+if (savedGas) document.getElementById('gasUrl').value = savedGas;
+
+// Restore placed blocks
+const savedPlaced = loadPlacedData();
+savedPlaced.forEach(pb => {
+  placeBlock(pb.blockId, pb.name, pb.color, pb.startMin, pb.duration, pb.id, pb.placedAt);
+});
+
+// Auto-save on any change
+const origUpdateNotepad = updateNotepad;
+updateNotepad = function() {
+  origUpdateNotepad();
+  localStorage.setItem(LS_NOTE, document.getElementById('notepadText').value);
+  saveState();
+};
+
+// Save GAS URL whenever user types it
+document.getElementById('gasUrl').addEventListener('input', e => {
+  localStorage.setItem(LS_GAS_URL, e.target.value);
+});
+
+// Save on page unload as a safety net
+window.addEventListener('beforeunload', saveState);
 
 setTimeout(()=>{
   const m=Math.max(0,getNowMinutes()-30);
